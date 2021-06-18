@@ -1,0 +1,15 @@
+{
+  "name": "polkadot-populate",
+  "version": "1.0.0",
+  "description": "Populate a Substrate chain",
+  "main": "index.js",
+  "repository": "https://github.com/shawntabrizi/polkadot-populate",
+  "author": "Shawn Tabrizi <shawntabrizi@gmail.com>",
+  "license": "MIT",
+  "dependencies": {
+    "@polkadot/api": "^4.14.1"
+  },
+  "scripts": {
+    "start": "node index.js"
+  }
+}
