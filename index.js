@@ -39,9 +39,10 @@ async function main() {
 			let account = keyring.addFromUri(sender_seed + "///" + counter.toString());
 			let address = account.address;
 			let info = await api.query.system.account(address);
+			let should_add = info.providers.isZero();
 
 			// Only touch new accounts
-			if (info.providers.isZero()) {
+			if (should_add) {
 				console.log(`Adding ${address} (${counter})`);
 				batch.push(
 					api.tx.balances.transferKeepAlive(address, target_balance)
