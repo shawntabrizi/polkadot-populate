@@ -1,6 +1,7 @@
 {
 	"balances": {
-		"users": 400000,
+		"start_at": 499000,
+		"users": 500000,
 		"balance": 2000000000000
 	}
 }
