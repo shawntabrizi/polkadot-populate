@@ -13,6 +13,12 @@ function getAccountAtIndex(index: number, keyring: Keyring): KeyringPair {
 
 // we assume all accounts already exists.
 async function addNomination(api: ApiPromise) {
+	// ---- CONFIGS ----
+	/// We submit nominations, from our predefined accounts, up to this index. Increment this at
+	/// each round.
+	const toNominate = 20 * 1000;
+	const overwriteNomination = false;
+
 	const keyring = new Keyring({ type: 'sr25519' });
 
 	const validators = (await api.query.staking.validators.entries());
@@ -28,28 +34,32 @@ async function addNomination(api: ApiPromise) {
 	}
 	console.log(`voting for`, targets);
 
-	/// We submit nominations, from our predefined accounts, up to this index. Increment this at
-	/// each round.
-	const toNominate = 10 * 1000;
-
 	let i = 0;
 	while (i < toNominate) {
 		// generate an account using the sender seed, with a password derivation
 		const account = getAccountAtIndex(i, keyring);
 		const address = account.address;
-		const isNominator = (await api.query.staking.ledger(address)).isSome;
+		const isBonded = (await api.query.staking.ledger(address)).isSome;
+		const isNominator = (await api.query.staking.nominators(address)).isSome;
 
 		// Only touch new accounts
-		if (!isNominator) {
+		if (!isBonded && !isNominator) {
 			console.log(`Nominating from ${address} (${i})`);
-			const tx = api.tx.utility.batch([
+			const tx = api.tx.utility.batchAll([
 				api.tx.staking.bond(account.address, 1500000000000, { Staked: null }),
 				api.tx.staking.nominate(targets)
 			]);
-			// don't listen. Just submit
+			await tx.signAndSend(account);
+		} else if (isBonded && !isNominator) {
+			console.log(`Bonded, Nominating from ${address} (${i})`);
+			const tx = api.tx.staking.nominate(targets);
+			await tx.signAndSend(account);
+		} else if (isBonded && isNominator && overwriteNomination) {
+			console.log(`Already Nominator ${address} (${i}), overwriting`);
+			const tx = api.tx.staking.nominate(targets);
 			await tx.signAndSend(account);
 		} else {
-			console.log(`Existing ${address} (${i})`);
+			console.log(`Already Nominator ${address} (${i})`);
 		}
 
 		i += 1;
@@ -58,6 +68,7 @@ async function addNomination(api: ApiPromise) {
 }
 
 async function createAccounts(api: ApiPromise) {
+	// TODO: soon we need a function to top-up all of these accounts to x WND
 	const keyring = new Keyring({ type: 'sr25519' });
 	const target_accounts = config.balances.users;
 	const target_balance = config.balances.balance;
@@ -97,7 +108,7 @@ async function createAccounts(api: ApiPromise) {
 async function send_until_included(api: ApiPromise, sender: KeyringPair, tx: SubmittableExtrinsic<"promise", ISubmittableResult>) {
 	return new Promise (async (resolvePromise, reject) => {
 		console.log(
-			`--- Submitting Batch ---`
+			`--- Submitting Transaction ---`
 		);
 
 		const unsub = await tx
@@ -135,6 +146,7 @@ async function main() {
 		`You are connected to chain ${chain} using ${nodeName} v${nodeVersion}`
 	);
 
+	// await createAccounts(api);
 	await addNomination(api);
 }
 
