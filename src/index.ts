@@ -11,14 +11,39 @@ function getAccountAtIndex(index: number, keyring: Keyring): KeyringPair {
 	return keyring.addFromUri(secret.seed + "///" + index.toString());
 }
 
+async function unNominate(api: ApiPromise, from: number, to: number) {
+	// ---- CONFIGS ----
+	// unNominate this range.
+	const keyring = new Keyring({ type: 'sr25519' });
+	for (let i = from; i < to; i++) {
+		const account = getAccountAtIndex(i, keyring);
+		const address = account.address;
+		const isBonded = (await api.query.staking.ledger(address)).isSome;
+		const isNominator = (await api.query.staking.nominators(address)).isSome;
+
+		if (isBonded && isNominator) {
+			console.log(`chilling ${address}`)
+			await api.tx.staking.chill().signAndSend(account);
+			// chill yourself please.
+		} else if (isBonded && !isNominator) {
+			console.log(`${address} already chilled`);
+		} else if (!isBonded && !isNominator) {
+			console.log(`${address} not even a staker`);
+		} else {
+			console.log(`un-fucking-reachable.`);
+		}
+	}
+
+	await api.disconnect();
+}
+
 // we assume all accounts already exists.
 async function addNomination(api: ApiPromise) {
 	// ---- CONFIGS ----
 	/// We submit nominations, from our predefined accounts, up to this index. Increment this at
 	/// each round.
-	const toNominate = 20 * 1000;
+	const toNominate = 30 * 1000;
 	const overwriteNomination = false;
-
 	const keyring = new Keyring({ type: 'sr25519' });
 
 	const validators = (await api.query.staking.validators.entries());
@@ -34,8 +59,7 @@ async function addNomination(api: ApiPromise) {
 	}
 	console.log(`voting for`, targets);
 
-	let i = 0;
-	while (i < toNominate) {
+	for (let i = 0; i < toNominate; i++) {
 		// generate an account using the sender seed, with a password derivation
 		const account = getAccountAtIndex(i, keyring);
 		const address = account.address;
@@ -61,8 +85,6 @@ async function addNomination(api: ApiPromise) {
 		} else {
 			console.log(`Already Nominator ${address} (${i})`);
 		}
-
-		i += 1;
 	}
 	await api.disconnect();
 }
@@ -147,7 +169,8 @@ async function main() {
 	);
 
 	// await createAccounts(api);
-	await addNomination(api);
+	// await addNomination(api);
+	await unNominate(api, 25000, 30000);
 }
 
 main().catch(console.error);
