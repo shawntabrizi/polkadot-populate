@@ -4,24 +4,51 @@ import { SubmittableExtrinsic } from "@polkadot/api/submittable/types"
 import { ISubmittableResult } from '@polkadot/types/types';
 import { BN } from '@polkadot/util';
 
-const config = require("../config.json");
 const secret = require("../secret.json")
+const WND = 10 ** 12;
+const STAKE = WND * 1.5;
+const TOPUP = WND * 2;
 
 function getAccountAtIndex(index: number, keyring: Keyring): KeyringPair {
-	return keyring.addFromUri(secret.seed + "///" + index.toString());
+	return keyring.addFromUri(secret.god + "///" + index.toString());
 }
 
-async function unNominate(api: ApiPromise, from: number, to: number) {
-	// ---- CONFIGS ----
-	// unNominate this range.
-	const keyring = new Keyring({ type: 'sr25519' });
+/// validate from this range.
+async function addValidators(api: ApiPromise, keyring: Keyring, from: number, to: number) {
+	for (let i = from; i < to; i++) {
+		// generate an account using the sender seed, with a password derivation
+		const account = getAccountAtIndex(i, keyring);
+		const address = account.address;
+		const isBonded = (await api.query.staking.ledger(address)).isSome;
+		// we don't care if this dude is now a validator, nominator, or whatever, we just call
+		// `validate` on them again.
+		if (!isBonded) {
+			console.log(`bonding and validating from ${address} (${i})`)
+			const tx = api.tx.utility.batchAll([
+				api.tx.staking.bond(account.address, STAKE, { Staked: null }),
+				api.tx.staking.validate({ commission: 10 ** 9, blocked: false }),
+			]);
+			await tx.signAndSend(account);
+		} else {
+			console.log(`already bonded, validating from ${address} (${i})`)
+			const tx = api.tx.staking.validate({ commission: 10 ** 9, blocked: false });
+			await tx.signAndSend(account);
+		}
+	}
+
+	await api.disconnect();
+}
+
+/// chill this range.
+async function chill(api: ApiPromise, keyring: Keyring, from: number, to: number) {
 	for (let i = from; i < to; i++) {
 		const account = getAccountAtIndex(i, keyring);
 		const address = account.address;
 		const isBonded = (await api.query.staking.ledger(address)).isSome;
 		const isNominator = (await api.query.staking.nominators(address)).isSome;
+		const isValidator = !(await api.query.staking.validators(address)).isEmpty;
 
-		if (isBonded && isNominator) {
+		if (isBonded && (isNominator || isValidator)) {
 			console.log(`chilling ${address}`)
 			await api.tx.staking.chill().signAndSend(account);
 			// chill yourself please.
@@ -36,30 +63,50 @@ async function unNominate(api: ApiPromise, from: number, to: number) {
 
 	await api.disconnect();
 }
+enum Nomination {
+	First,
+	Random,
+}
+
+interface NominationConfig {
+	type: Nomination,
+	range: number[],
+	overwrite: boolean,
+}
+
+const getMeRandomElements = function (sourceArray: any[], neededElements: number) {
+	const result = [];
+	for (let i = 0; i < neededElements; i++) {
+		result.push(sourceArray[Math.floor(Math.random() * sourceArray.length)]);
+	}
+	return result;
+}
 
 // we assume all accounts already exists.
-async function addNomination(api: ApiPromise) {
-	// ---- CONFIGS ----
-	/// We submit nominations, from our predefined accounts, up to this index. Increment this at
-	/// each round.
-	const toNominate = 30 * 1000;
-	const overwriteNomination = false;
-	const keyring = new Keyring({ type: 'sr25519' });
-
+async function addNomination(api: ApiPromise, keyring: Keyring, from: number, to: number, config: NominationConfig) {
 	const validators = (await api.query.staking.validators.entries());
-	const targets = validators.map(([stashKey, _prefs]) => {
+	const firstTargets = validators.map(([stashKey, _prefs]) => {
 		const stash = api.createType('AccountId', stashKey.slice(-32)).toHuman();
 		return stash;
 	}).slice(0, 16);
-
-	if (targets.length != 16) {
-		while (targets.length < 16) {
-			targets.push(targets[0])
+	if (firstTargets.length != 16) {
+		while (firstTargets.length < 16) {
+			firstTargets.push(firstTargets[0])
 		}
 	}
-	console.log(`voting for`, targets);
 
-	for (let i = 0; i < toNominate; i++) {
+	for (let i = from; i < to; i++) {
+		let nominationTargets = [];
+		if (config.type === Nomination.First) {
+			nominationTargets = firstTargets
+		} else {
+			const range = config.range;
+			// pick random 16 from the range
+			const indices = getMeRandomElements(range, 16);
+			const accounts = indices.map((i) => getAccountAtIndex(i, keyring).address);
+			nominationTargets = accounts
+		}
+
 		// generate an account using the sender seed, with a password derivation
 		const account = getAccountAtIndex(i, keyring);
 		const address = account.address;
@@ -70,17 +117,17 @@ async function addNomination(api: ApiPromise) {
 		if (!isBonded && !isNominator) {
 			console.log(`Nominating from ${address} (${i})`);
 			const tx = api.tx.utility.batchAll([
-				api.tx.staking.bond(account.address, 1500000000000, { Staked: null }),
-				api.tx.staking.nominate(targets)
+				api.tx.staking.bond(account.address, STAKE, { Staked: null }),
+				api.tx.staking.nominate(nominationTargets)
 			]);
 			await tx.signAndSend(account);
 		} else if (isBonded && !isNominator) {
 			console.log(`Bonded, Nominating from ${address} (${i})`);
-			const tx = api.tx.staking.nominate(targets);
+			const tx = api.tx.staking.nominate(nominationTargets);
 			await tx.signAndSend(account);
-		} else if (isBonded && isNominator && overwriteNomination) {
-			console.log(`Already Nominator ${address} (${i}), overwriting`);
-			const tx = api.tx.staking.nominate(targets);
+		} else if (isBonded && isNominator && config.overwrite) {
+			console.log(`Already Nominator ${address} (${i}), overwriting to ${nominationTargets}`);
+			const tx = api.tx.staking.nominate(nominationTargets);
 			await tx.signAndSend(account);
 		} else {
 			console.log(`Already Nominator ${address} (${i})`);
@@ -89,21 +136,53 @@ async function addNomination(api: ApiPromise) {
 	await api.disconnect();
 }
 
-async function createAccounts(api: ApiPromise) {
-	// TODO: soon we need a function to top-up all of these accounts to x WND
-	const keyring = new Keyring({ type: 'sr25519' });
-	const target_accounts = config.balances.users;
-	const target_balance = config.balances.balance;
+// top up all accounts to the fixed amount.
+async function topOpAccounts(api: ApiPromise, keyring: Keyring, from: number, to: number) {
+	const sender_seed = secret.seed;
+	const god = keyring.addFromUri(sender_seed);
+	let counter = from;
+	const batch_size = 1000;
+
+	while (counter < to) {
+		const batch = [];
+		while (batch.length < batch_size && counter < to) {
+			const account = getAccountAtIndex(counter, keyring);
+			const data = await api.query.system.account(account.address);
+			const topup = (new BN(TOPUP)).sub(data.data.free);
+			if (!topup.isZero()) {
+				console.log(`[#${counter}] topping up ${account.address}`)
+				batch.push(api.tx.balances.transferKeepAlive(account.address, topup));
+			} else {
+				console.log(`[#${counter}] ${account.address} is already good`);
+			}
+			counter++;
+		}
+		const batch_tx = api.tx.utility.batch(batch)
+		await send_until_included(api, god, batch_tx);
+	}
+	await api.disconnect();
+}
+
+async function showStatus(api: ApiPromise, keyring: Keyring, from: number, to: number) {
+	for (let i = from; i < to; i++) {
+		const account = getAccountAtIndex(i, keyring);
+		const data = await api.query.system.account(account.address);
+		console.log(`Account #${i} has ${data.data.free.toHuman()} free balance, [nonce ${data.nonce} / ${data.providers} providers]`)
+	}
+	await api.disconnect();
+}
+
+async function createAccounts(api: ApiPromise, keyring: Keyring, from: number, to: number) {
 	const sender_seed = secret.seed;
 	const sender = keyring.addFromUri(sender_seed);
 
 	const batch_size = 500;
-	let counter = 0;
+	let counter = from;
 
-	while (counter < target_accounts) {
+	while (counter < to) {
 		const batch = [];
 
-		while (batch.length < batch_size && counter < target_accounts) {
+		while (batch.length < batch_size && counter < to) {
 			// generate an account using the sender seed, with a password derivation
 			const account = getAccountAtIndex(counter, keyring);
 			const address = account.address;
@@ -114,7 +193,7 @@ async function createAccounts(api: ApiPromise) {
 			if (should_add) {
 				console.log(`Adding ${address} (${counter})`);
 				batch.push(
-					api.tx.balances.transferKeepAlive(address, target_balance)
+					api.tx.balances.transferKeepAlive(address, TOPUP)
 				)
 			} else {
 				console.log(`Existing ${address} (${counter})`);
@@ -164,13 +243,30 @@ async function main() {
 		api.rpc.system.name(),
 		api.rpc.system.version()
 	]);
-	console.log(
-		`You are connected to chain ${chain} using ${nodeName} v${nodeVersion}`
-	);
+	console.log(`🌎 You are connected to chain ${chain} using ${nodeName} v${nodeVersion}`);
+	const keyring = new Keyring({ type: 'sr25519' });
 
-	// await createAccounts(api);
-	// await addNomination(api);
-	await unNominate(api, 25000, 30000);
+	console.log(`📈 nominators: ${await api.query.staking.counterForNominators()} / ${await api.query.staking.maxNominatorsCount()}`)
+	console.log(`📉 validators: ${await api.query.staking.counterForValidators()} / ${await api.query.staking.maxValidatorsCount()}`)
+
+	const ACCOUNTS_END = 500 * 1000;
+	const NOMINATION_START = 0;
+	const NOMINATION_END = 25 * 1000;
+	const VALIDATION_START = 450000;
+	const VALIDATION_END = VALIDATION_START + 1000;
+	// uncomment something on each run, someday I will make this cli options.
+	// await showStatus(api, keyring, VALIDATION_START, VALIDATION_END);
+	// await addValidators(api, keyring, VALIDATION_START, VALIDATION_END);
+	// await topOpAccounts(api, keyring, 0, ACCOUNTS_END);
+	// await createAccounts(api, keyring, 0, ACCOUNTS_END);
+	await addNomination(
+		api,
+		keyring,
+		NOMINATION_START,
+		NOMINATION_END,
+		{ type: Nomination.Random, range: [VALIDATION_START, VALIDATION_END], overwrite: true },
+	);
+	// await chill(api, keyring, 450000, 450000 + 1000);
 }
 
 main().catch(console.error);
