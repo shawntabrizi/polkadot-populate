@@ -253,9 +253,9 @@ async function send_until_included(api: ApiPromise, sender: KeyringPair, tx: Sub
 }
 
 // Main function which needs to run at start
-async function main(): Promise<void> {
+async function main() {
 	const provider = new WsProvider('ws://localhost:9944');
-	// const provider = new WsProvider('wss://westend.elara.patract.io');
+	// const provider = new WsProvider('wss://westend-rpc.polkadot.io/');
 	const api = await ApiPromise.create({ provider });
 
 	// Get general information about the node we are connected to
@@ -280,7 +280,7 @@ async function main(): Promise<void> {
 	// await addValidators(api, keyring, VALIDATION_START, VALIDATION_END);
 	// await topOpAccounts(api, keyring, 0, ACCOUNTS_END);
 	// await createAccounts(api, keyring, 0, ACCOUNTS_END);
-	return await addNomination(
+	await addNomination(
 		api,
 		keyring,
 		NOMINATION_START,
