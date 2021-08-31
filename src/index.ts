@@ -254,9 +254,9 @@ async function send_until_included(api: ApiPromise, sender: KeyringPair, tx: Sub
 
 // Main function which needs to run at start
 async function main(): Promise<void> {
-	// const provider = new WsProvider('ws://localhost:9944');
-	const provider = new WsProvider('wss://westend.elara.patract.io');
-	const	api = await ApiPromise.create({ provider });
+	const provider = new WsProvider('ws://localhost:9944');
+	// const provider = new WsProvider('wss://westend.elara.patract.io');
+	const api = await ApiPromise.create({ provider });
 
 	// Get general information about the node we are connected to
 	const [chain, nodeName, nodeVersion] = await Promise.all([
@@ -280,7 +280,6 @@ async function main(): Promise<void> {
 	// await addValidators(api, keyring, VALIDATION_START, VALIDATION_END);
 	// await topOpAccounts(api, keyring, 0, ACCOUNTS_END);
 	// await createAccounts(api, keyring, 0, ACCOUNTS_END);
-	// await chill(api, keyring, 450000, 450000 + 1000);
 	return await addNomination(
 		api,
 		keyring,
@@ -288,6 +287,7 @@ async function main(): Promise<void> {
 		NOMINATION_END,
 		{ type: Nomination.ParityWestend, range: [VALIDATION_START, VALIDATION_END], overwrite: true },
 	);
+	// await chill(api, keyring, 450000, 450000 + 1000);
 }
 
 main().catch(console.error);
