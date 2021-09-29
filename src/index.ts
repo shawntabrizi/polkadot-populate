@@ -8,6 +8,24 @@ const secret = require("../secret.json")
 const WND = 10 ** 12;
 const STAKE = WND * 1.5;
 const TOPUP = WND * 2;
+const PARITY_WESTEND_VALIDATORS = [
+	'5C556QTtg1bJ43GDSgeowa3Ark6aeSHGTac1b2rKSXtgmSmW', // PARITY WESTEND VALIDATOR 0
+	'5Ft3J6iqSQPWX2S9jERXcMpevt8JDUPWjec5uGierfVGXisE', // PARITY WESTEND VALIDATOR 1
+	'5GYaYNVq6e855t5hVCyk4Wuqssaf6ADTrvdPZ3QXyHvFXTip', // PARITY WESTEND VALIDATOR 2
+	'5FEjMPSs4X2XNes7QRH6eLmaYCskHdnYM8Zv2kKrBrhnzGbR', // PARITY WESTEND VALIDATOR 3
+	'5CFPqoTU7fiUp1JJNbfcY2z6yavEBKDPQGg4SGeG3Fm7vCsg', // PARITY WESTEND VALIDATOR 4
+	'5Ek5JCnrRsyUGYNRaEvkufG1i1EUxEE9cytuWBBjA9oNZVsf', // PARITY WESTEND VALIDATOR 5
+	'5GTD7ZeD823BjpmZBCSzBQp7cvHR1Gunq7oDkurZr9zUev2n', // PARITY WESTEND VALIDATOR 6
+	'5FUJHYEzKpVJfNbtXmR9HFqmcSEz6ak7ZUhBECz7GpsFkSYR', // PARITY WESTEND VALIDATOR 7
+	'5FZoQhgUCmqBxnkHX7jCqThScS2xQWiwiF61msg63CFL3Y8f', // PARITY WESTEND VALIDATOR 8
+	'5G1ojzh47Yt8KoYhuAjXpHcazvsoCXe3G8LZchKDvumozJJJ', // PARITY WESTEND VALIDATOR 9
+	'5HYYWyhyUQ7Ae11f8fCid58bhJ7ikLHM9bU8A6Ynwoc3dStR', // PARITY WESTEND VALIDATOR 10
+	'5CFPcUJgYgWryPaV1aYjSbTpbTLu42V32Ytw1L9rfoMAsfGh', // PARITY WESTEND VALIDATOR 11
+	'5ENXqYmc5m6VLMm5i1mun832xAv2Qm9t3M4PWAFvvyCJLNoR', // PARITY WESTEND VALIDATOR 12
+	'5E2CYS4D6KdD1nDh5d7hTtss3TR8etx4i92ozipJt5QtR9KY', // PARITY WESTEND VALIDATOR 13
+	'5DJcEbkNxsnNwHGrseg7cgbfUG8eiKzpuZqgSph5HqHrjgf6', // PARITY WESTEND VALIDATOR 14
+	'5CcHdjf6sPcEkTmXFzF2CfH7MFrVHyY5PZtSm1eZsxgsj1KC', // PARITY WESTEND VALIDATOR 15
+];
 
 function getAccountAtIndex(index: number, keyring: Keyring): KeyringPair {
 	return keyring.addFromUri(secret.god + "///" + index.toString());
@@ -66,6 +84,7 @@ async function chill(api: ApiPromise, keyring: Keyring, from: number, to: number
 enum Nomination {
 	First,
 	Random,
+	ParityWestend,
 }
 
 interface NominationConfig {
@@ -99,12 +118,14 @@ async function addNomination(api: ApiPromise, keyring: Keyring, from: number, to
 		let nominationTargets = [];
 		if (config.type === Nomination.First) {
 			nominationTargets = firstTargets
-		} else {
+		} else if (config.type == Nomination.Random) {
 			const range = config.range;
 			// pick random 16 from the range
 			const indices = getMeRandomElements(range, 16);
 			const accounts = indices.map((i) => getAccountAtIndex(i, keyring).address);
 			nominationTargets = accounts
+		} else {
+			nominationTargets = PARITY_WESTEND_VALIDATORS;
 		}
 
 		// generate an account using the sender seed, with a password derivation
@@ -187,7 +208,7 @@ async function createAccounts(api: ApiPromise, keyring: Keyring, from: number, t
 			const account = getAccountAtIndex(counter, keyring);
 			const address = account.address;
 			const info = await api.query.system.account(address);
-			const should_add = info.providers.isZero();
+			const should_add = info.providers.toBn().isZero();
 
 			// Only touch new accounts
 			if (should_add) {
@@ -255,8 +276,8 @@ async function main() {
 	const NOMINATION_END = 25 * 1000;
 	const VALIDATION_START = 450000;
 	const VALIDATION_END = VALIDATION_START + 1000;
-	// uncomment something on each run, someday I will make this cli options.
 
+	// uncomment something on each run, someday I will make this cli options. Some examples:
 	// await showStatus(api, keyring, NOMINATION_END - 2500, NOMINATION_END);
 	// await addValidators(api, keyring, VALIDATION_START, VALIDATION_END);
 	// await topOpAccounts(api, keyring, 0, ACCOUNTS_END);
@@ -268,8 +289,16 @@ async function main() {
 	// 	NOMINATION_END,
 	// 	{ type: Nomination.Random, range: [VALIDATION_START, VALIDATION_END], overwrite: true },
 	// );
-	await chill(api, keyring, NOMINATION_END - 2500, NOMINATION_END);
-	await showStatus(api, keyring, NOMINATION_END - 2500, NOMINATION_END);
+	// await chill(api, keyring, NOMINATION_END - 2500, NOMINATION_END);
+	// await showStatus(api, keyring, NOMINATION_END - 2500, NOMINATION_END);
+	// await addNomination(
+	// 	api,
+	// 	keyring,
+	// 	NOMINATION_START,
+	// 	NOMINATION_END,
+	// 	{ type: Nomination.ParityWestend, range: [VALIDATION_START, VALIDATION_END], overwrite: true },
+	// );
+	// await chill(api, keyring, 450000, 450000 + 1000);
 }
 
 main().catch(console.error);
