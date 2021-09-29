@@ -49,13 +49,13 @@ async function chill(api: ApiPromise, keyring: Keyring, from: number, to: number
 		const isValidator = !(await api.query.staking.validators(address)).isEmpty;
 
 		if (isBonded && (isNominator || isValidator)) {
-			console.log(`chilling ${address}`)
+			console.log(`[${i}/${to}] chilling ${address}`)
 			await api.tx.staking.chill().signAndSend(account);
 			// chill yourself please.
 		} else if (isBonded && !isNominator) {
-			console.log(`${address} already chilled`);
+			console.log(`[${i}/${to}] ${address} already chilled`);
 		} else if (!isBonded && !isNominator) {
-			console.log(`${address} not even a staker`);
+			console.log(`[${i}/${to}] ${address} not even a staker`);
 		} else {
 			console.log(`un-fucking-reachable.`);
 		}
@@ -167,7 +167,7 @@ async function showStatus(api: ApiPromise, keyring: Keyring, from: number, to: n
 	for (let i = from; i < to; i++) {
 		const account = getAccountAtIndex(i, keyring);
 		const data = await api.query.system.account(account.address);
-		console.log(`Account #${i} has ${data.data.free.toHuman()} free balance, [nonce ${data.nonce} / ${data.providers} providers]`)
+		console.log(`Account #${i} has ${data.data.free.toHuman()} free balance, [nonce ${data.nonce} / ${data.providers} providers], ledger? ${(await api.query.staking.ledger(account.address)).isSome}, nominator? ${(await (api.query.staking.nominators(account.address))).isSome}`)
 	}
 	await api.disconnect();
 }
@@ -233,8 +233,8 @@ async function send_until_included(api: ApiPromise, sender: KeyringPair, tx: Sub
 
 // Main function which needs to run at start
 async function main() {
-	const provider = new WsProvider('ws://localhost:9944');
-	// const provider = new WsProvider('wss://westend-rpc.polkadot.io/');
+	// const provider = new WsProvider('ws://localhost:9944');
+	const provider = new WsProvider('wss://westend-rpc.polkadot.io/');
 	const api = await ApiPromise.create({ provider });
 
 	// Get general information about the node we are connected to
@@ -251,22 +251,25 @@ async function main() {
 
 	const ACCOUNTS_END = 500 * 1000;
 	const NOMINATION_START = 0;
+
 	const NOMINATION_END = 25 * 1000;
 	const VALIDATION_START = 450000;
 	const VALIDATION_END = VALIDATION_START + 1000;
 	// uncomment something on each run, someday I will make this cli options.
-	// await showStatus(api, keyring, VALIDATION_START, VALIDATION_END);
+
+	// await showStatus(api, keyring, NOMINATION_END - 2500, NOMINATION_END);
 	// await addValidators(api, keyring, VALIDATION_START, VALIDATION_END);
 	// await topOpAccounts(api, keyring, 0, ACCOUNTS_END);
 	// await createAccounts(api, keyring, 0, ACCOUNTS_END);
-	await addNomination(
-		api,
-		keyring,
-		NOMINATION_START,
-		NOMINATION_END,
-		{ type: Nomination.Random, range: [VALIDATION_START, VALIDATION_END], overwrite: true },
-	);
-	// await chill(api, keyring, 450000, 450000 + 1000);
+	// await addNomination(
+	// 	api,
+	// 	keyring,
+	// 	NOMINATION_START,
+	// 	NOMINATION_END,
+	// 	{ type: Nomination.Random, range: [VALIDATION_START, VALIDATION_END], overwrite: true },
+	// );
+	await chill(api, keyring, NOMINATION_END - 2500, NOMINATION_END);
+	await showStatus(api, keyring, NOMINATION_END - 2500, NOMINATION_END);
 }
 
 main().catch(console.error);
