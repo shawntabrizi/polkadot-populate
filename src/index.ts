@@ -3,11 +3,11 @@ import { KeyringPair } from "@polkadot/keyring/types"
 import { SubmittableExtrinsic } from "@polkadot/api/submittable/types"
 import { ISubmittableResult } from '@polkadot/types/types';
 import { BN } from '@polkadot/util';
+import '@polkadot/api-augment'
+import { strict as assert } from 'assert/strict';
 
 const secret = require("../secret.json")
-const WND = 10 ** 12;
-const STAKE = WND * 1.5;
-const TOPUP = WND * 2;
+const WND = new BN(10).pow(new BN(12));
 const PARITY_WESTEND_VALIDATORS = [
 	'5C556QTtg1bJ43GDSgeowa3Ark6aeSHGTac1b2rKSXtgmSmW', // PARITY WESTEND VALIDATOR 0
 	'5Ft3J6iqSQPWX2S9jERXcMpevt8JDUPWjec5uGierfVGXisE', // PARITY WESTEND VALIDATOR 1
@@ -15,7 +15,7 @@ const PARITY_WESTEND_VALIDATORS = [
 	'5FEjMPSs4X2XNes7QRH6eLmaYCskHdnYM8Zv2kKrBrhnzGbR', // PARITY WESTEND VALIDATOR 3
 	'5CFPqoTU7fiUp1JJNbfcY2z6yavEBKDPQGg4SGeG3Fm7vCsg', // PARITY WESTEND VALIDATOR 4
 	'5Ek5JCnrRsyUGYNRaEvkufG1i1EUxEE9cytuWBBjA9oNZVsf', // PARITY WESTEND VALIDATOR 5
-	'5GTD7ZeD823BjpmZBCSzBQp7cvHR1Gunq7oDkurZr9zUev2n', // PARITY WESTEND VALIDATOR 6
+	// '5GTD7ZeD823BjpmZBCSzBQp7cvHR1Gunq7oDkurZr9zUev2n', // PARITY WESTEND VALIDATOR 6
 	'5FUJHYEzKpVJfNbtXmR9HFqmcSEz6ak7ZUhBECz7GpsFkSYR', // PARITY WESTEND VALIDATOR 7
 	'5FZoQhgUCmqBxnkHX7jCqThScS2xQWiwiF61msg63CFL3Y8f', // PARITY WESTEND VALIDATOR 8
 	'5G1ojzh47Yt8KoYhuAjXpHcazvsoCXe3G8LZchKDvumozJJJ', // PARITY WESTEND VALIDATOR 9
@@ -32,7 +32,7 @@ function getAccountAtIndex(index: number, keyring: Keyring): KeyringPair {
 }
 
 /// validate from this range.
-async function addValidators(api: ApiPromise, keyring: Keyring, from: number, to: number) {
+async function addValidators(api: ApiPromise, keyring: Keyring, stake: BN, from: number, to: number) {
 	for (let i = from; i < to; i++) {
 		// generate an account using the sender seed, with a password derivation
 		const account = getAccountAtIndex(i, keyring);
@@ -43,7 +43,7 @@ async function addValidators(api: ApiPromise, keyring: Keyring, from: number, to
 		if (!isBonded) {
 			console.log(`bonding and validating from ${address} (${i})`)
 			const tx = api.tx.utility.batchAll([
-				api.tx.staking.bond(account.address, STAKE, { Staked: null }),
+				api.tx.staking.bond(account.address, stake, { Staked: null }),
 				api.tx.staking.validate({ commission: 10 ** 9, blocked: false }),
 			]);
 			await tx.signAndSend(account);
@@ -102,7 +102,13 @@ const getMeRandomElements = function (sourceArray: any[], neededElements: number
 }
 
 // we assume all accounts already exists.
-async function addNomination(api: ApiPromise, keyring: Keyring, from: number, to: number, config: NominationConfig) {
+async function addNomination(api: ApiPromise, keyring: Keyring, stake: BN, from: number, to: number, config: NominationConfig) {
+	if (config.type === Nomination.ParityWestend) {
+		for (const v of PARITY_WESTEND_VALIDATORS) {
+			const prefs = await api.query.staking.validators(v);
+			assert.ok(prefs.blocked, `${v} is blocked or not a validator`)
+		}
+	}
 	const validators = (await api.query.staking.validators.entries());
 	const firstTargets = validators.map(([stashKey, _prefs]) => {
 		const stash = api.createType('AccountId', stashKey.slice(-32)).toHuman();
@@ -131,24 +137,33 @@ async function addNomination(api: ApiPromise, keyring: Keyring, from: number, to
 		// generate an account using the sender seed, with a password derivation
 		const account = getAccountAtIndex(i, keyring);
 		const address = account.address;
-		const isBonded = (await api.query.staking.ledger(address)).isSome;
+		const ledger = await api.query.staking.ledger(address);
+		const isBonded = ledger.isSome;
+		const bondedAmount = api.createType('Balance', ledger.unwrapOrDefault().active);
 		const isNominator = (await api.query.staking.nominators(address)).isSome;
+		const needsBondExtra = stake.gt(bondedAmount);
 
 		// Only touch new accounts
 		if (!isBonded && !isNominator) {
-			console.log(`Nominating from ${address} (${i})`);
+			console.log(`[${i}] Bonding and nominating from ${address}`);
 			const tx = api.tx.utility.batchAll([
-				api.tx.staking.bond(account.address, STAKE, { Staked: null }),
+				api.tx.staking.bond(account.address, stake, { Staked: null }),
 				api.tx.staking.nominate(nominationTargets)
 			]);
 			await tx.signAndSend(account);
 		} else if (isBonded && !isNominator) {
-			console.log(`Bonded, Nominating from ${address} (${i})`);
-			const tx = api.tx.staking.nominate(nominationTargets);
+			console.log(`[${i} / extraBond: ${needsBondExtra}] Bonded, Nominating from ${address}`);
+			const tx = needsBondExtra ? api.tx.utility.batchAll([
+				api.tx.staking.bondExtra(stake.sub(bondedAmount)),
+				api.tx.staking.nominate(nominationTargets)
+			]): api.tx.staking.nominate(nominationTargets);
 			await tx.signAndSend(account);
 		} else if (isBonded && isNominator && config.overwrite) {
-			console.log(`Already Nominator ${address} (${i}), overwriting to ${nominationTargets}`);
-			const tx = api.tx.staking.nominate(nominationTargets);
+			console.log(`[${i} / extraBond: ${needsBondExtra}] Already Nominator ${address} with stake ${bondedAmount}, overwriting to ${stake} and new nominations (${config.type})`);
+			const tx = needsBondExtra ? api.tx.utility.batchAll([
+				api.tx.staking.bondExtra(stake.sub(bondedAmount)),
+				api.tx.staking.nominate(nominationTargets)
+			]): api.tx.staking.nominate(nominationTargets);
 			await tx.signAndSend(account);
 		} else {
 			console.log(`Already Nominator ${address} (${i})`);
@@ -158,8 +173,8 @@ async function addNomination(api: ApiPromise, keyring: Keyring, from: number, to
 }
 
 // top up all accounts to the fixed amount.
-async function topOpAccounts(api: ApiPromise, keyring: Keyring, from: number, to: number) {
-	const sender_seed = secret.seed;
+async function topOpAccounts(api: ApiPromise, keyring: Keyring, amount: BN, from: number, to: number) {
+	const sender_seed = secret.god;
 	const god = keyring.addFromUri(sender_seed);
 	let counter = from;
 	const batch_size = 1000;
@@ -169,9 +184,9 @@ async function topOpAccounts(api: ApiPromise, keyring: Keyring, from: number, to
 		while (batch.length < batch_size && counter < to) {
 			const account = getAccountAtIndex(counter, keyring);
 			const data = await api.query.system.account(account.address);
-			const topup = (new BN(TOPUP)).sub(data.data.free);
+			const topup = amount.sub(data.data.free);
 			if (!topup.isZero()) {
-				console.log(`[#${counter}] topping up ${account.address}`)
+				console.log(`[#${counter}] topping up ${account.address} to ${amount}`)
 				batch.push(api.tx.balances.transferKeepAlive(account.address, topup));
 			} else {
 				console.log(`[#${counter}] ${account.address} is already good`);
@@ -193,8 +208,8 @@ async function showStatus(api: ApiPromise, keyring: Keyring, from: number, to: n
 	await api.disconnect();
 }
 
-async function createAccounts(api: ApiPromise, keyring: Keyring, from: number, to: number) {
-	const sender_seed = secret.seed;
+async function createAccounts(api: ApiPromise, keyring: Keyring, amount: BN, from: number, to: number) {
+	const sender_seed = secret.god;
 	const sender = keyring.addFromUri(sender_seed);
 
 	const batch_size = 500;
@@ -214,7 +229,7 @@ async function createAccounts(api: ApiPromise, keyring: Keyring, from: number, t
 			if (should_add) {
 				console.log(`Adding ${address} (${counter})`);
 				batch.push(
-					api.tx.balances.transferKeepAlive(address, TOPUP)
+					api.tx.balances.transferKeepAlive(address, amount)
 				)
 			} else {
 				console.log(`Existing ${address} (${counter})`);
@@ -258,6 +273,8 @@ async function main() {
 	const provider = new WsProvider('wss://westend-rpc.polkadot.io/');
 	const api = await ApiPromise.create({ provider });
 
+	const WND = new BN(10).pow(new BN(12))
+
 	// Get general information about the node we are connected to
 	const [chain, nodeName, nodeVersion] = await Promise.all([
 		api.rpc.system.chain(),
@@ -271,33 +288,41 @@ async function main() {
 	console.log(`📉 validators: ${await api.query.staking.counterForValidators()} / ${await api.query.staking.maxValidatorsCount()}`)
 
 	const ACCOUNTS_END = 500 * 1000;
-	const NOMINATION_START = 0;
 
-	const NOMINATION_END = 25 * 1000;
-	const VALIDATION_START = 450000;
+	const NOMINATION_START = 0;
+	const NOMINATION_END = 23 * 1000;
+
+	const CHEAP_NOMINATION_START = 40 * 1000;
+	const CHEAP_NOMINATION_END = 80 * 1000;
+
+	const VALIDATION_START = 450 * 1000;
 	const VALIDATION_END = VALIDATION_START + 1000;
 
 	// uncomment something on each run, someday I will make this cli options. Some examples:
-	// await showStatus(api, keyring, NOMINATION_END - 2500, NOMINATION_END);
+	// await showStatus(api, keyring, 0, NOMINATION_END);
 	// await addValidators(api, keyring, VALIDATION_START, VALIDATION_END);
-	// await topOpAccounts(api, keyring, 0, ACCOUNTS_END);
 	// await createAccounts(api, keyring, 0, ACCOUNTS_END);
+
+	// await topOpAccounts(api, keyring, new BN(5).mul(WND), 8000, NOMINATION_END);
+
 	// await addNomination(
 	// 	api,
 	// 	keyring,
-	// 	NOMINATION_START,
-	// 	NOMINATION_END,
+	// 	WND.mul(new BN(3)).div(new BN(2)),
+	// 	50852,
+	// 	CHEAP_NOMINATION_END,
 	// 	{ type: Nomination.Random, range: [VALIDATION_START, VALIDATION_END], overwrite: true },
 	// );
-	// await chill(api, keyring, NOMINATION_END - 2500, NOMINATION_END);
-	// await showStatus(api, keyring, NOMINATION_END - 2500, NOMINATION_END);
-	// await addNomination(
-	// 	api,
-	// 	keyring,
-	// 	NOMINATION_START,
-	// 	NOMINATION_END,
-	// 	{ type: Nomination.ParityWestend, range: [VALIDATION_START, VALIDATION_END], overwrite: true },
-	// );
+
+	// await chill(api, keyring, VALIDATION_START, VALIDATION_END);
+	await addNomination(
+		api,
+		keyring,
+		WND.mul(new BN(5)).div(new BN(2)),
+		NOMINATION_START,
+		NOMINATION_END,
+		{ type: Nomination.ParityWestend, range: [VALIDATION_START, VALIDATION_END], overwrite: true },
+	);
 	// await chill(api, keyring, 450000, 450000 + 1000);
 }
 
