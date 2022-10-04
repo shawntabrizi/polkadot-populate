@@ -106,7 +106,7 @@ async function addNomination(api: ApiPromise, keyring: Keyring, stake: BN, from:
 	if (config.type === Nomination.ParityWestend) {
 		for (const v of PARITY_WESTEND_VALIDATORS) {
 			const prefs = await api.query.staking.validators(v);
-			assert.ok(prefs.blocked, `${v} is blocked or not a validator`)
+			assert.ok(!prefs.blocked, `${v} is blocked or not a validator`)
 		}
 	}
 	const validators = (await api.query.staking.validators.entries());
