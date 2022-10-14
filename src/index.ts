@@ -1,12 +1,12 @@
-import { ApiPromise, WsProvider, Keyring } from '@polkadot/api'
-import { KeyringPair } from "@polkadot/keyring/types"
-import { SubmittableExtrinsic } from "@polkadot/api/submittable/types"
+import { ApiPromise, WsProvider, Keyring } from '@polkadot/api';
+import { KeyringPair } from '@polkadot/keyring/types';
+import { SubmittableExtrinsic } from '@polkadot/api/submittable/types';
 import { ISubmittableResult } from '@polkadot/types/types';
 import { BN } from '@polkadot/util';
-import '@polkadot/api-augment'
+import '@polkadot/api-augment';
 import { strict as assert } from 'assert/strict';
 
-const secret = require("../secret.json")
+const secret = require('../secret.json');
 const WND = new BN(10).pow(new BN(12));
 const PARITY_WESTEND_VALIDATORS = [
 	'5C556QTtg1bJ43GDSgeowa3Ark6aeSHGTac1b2rKSXtgmSmW', // PARITY WESTEND VALIDATOR 0
@@ -24,15 +24,21 @@ const PARITY_WESTEND_VALIDATORS = [
 	'5ENXqYmc5m6VLMm5i1mun832xAv2Qm9t3M4PWAFvvyCJLNoR', // PARITY WESTEND VALIDATOR 12
 	'5E2CYS4D6KdD1nDh5d7hTtss3TR8etx4i92ozipJt5QtR9KY', // PARITY WESTEND VALIDATOR 13
 	'5DJcEbkNxsnNwHGrseg7cgbfUG8eiKzpuZqgSph5HqHrjgf6', // PARITY WESTEND VALIDATOR 14
-	'5CcHdjf6sPcEkTmXFzF2CfH7MFrVHyY5PZtSm1eZsxgsj1KC', // PARITY WESTEND VALIDATOR 15
+	'5CcHdjf6sPcEkTmXFzF2CfH7MFrVHyY5PZtSm1eZsxgsj1KC' // PARITY WESTEND VALIDATOR 15
 ];
 
 function getAccountAtIndex(index: number, keyring: Keyring): KeyringPair {
-	return keyring.addFromUri(secret.god + "///" + index.toString());
+	return keyring.addFromUri(secret.god + '///' + index.toString());
 }
 
 /// validate from this range.
-async function addValidators(api: ApiPromise, keyring: Keyring, stake: BN, from: number, to: number) {
+async function addValidators(
+	api: ApiPromise,
+	keyring: Keyring,
+	stake: BN,
+	from: number,
+	to: number
+) {
 	for (let i = from; i < to; i++) {
 		// generate an account using the sender seed, with a password derivation
 		const account = getAccountAtIndex(i, keyring);
@@ -41,14 +47,14 @@ async function addValidators(api: ApiPromise, keyring: Keyring, stake: BN, from:
 		// we don't care if this dude is now a validator, nominator, or whatever, we just call
 		// `validate` on them again.
 		if (!isBonded) {
-			console.log(`bonding and validating from ${address} (${i})`)
+			console.log(`bonding and validating from ${address} (${i})`);
 			const tx = api.tx.utility.batchAll([
 				api.tx.staking.bond(account.address, stake, { Staked: null }),
-				api.tx.staking.validate({ commission: 10 ** 9, blocked: false }),
+				api.tx.staking.validate({ commission: 10 ** 9, blocked: false })
 			]);
 			await tx.signAndSend(account);
 		} else {
-			console.log(`already bonded, validating from ${address} (${i})`)
+			console.log(`already bonded, validating from ${address} (${i})`);
 			const tx = api.tx.staking.validate({ commission: 10 ** 9, blocked: false });
 			await tx.signAndSend(account);
 		}
@@ -67,7 +73,7 @@ async function chill(api: ApiPromise, keyring: Keyring, from: number, to: number
 		const isValidator = !(await api.query.staking.validators(address)).isEmpty;
 
 		if (isBonded && (isNominator || isValidator)) {
-			console.log(`[${i}/${to}] chilling ${address}`)
+			console.log(`[${i}/${to}] chilling ${address}`);
 			await api.tx.staking.chill().signAndSend(account);
 			// chill yourself please.
 		} else if (isBonded && !isNominator) {
@@ -84,13 +90,13 @@ async function chill(api: ApiPromise, keyring: Keyring, from: number, to: number
 enum Nomination {
 	First,
 	Random,
-	ParityWestend,
+	ParityWestend
 }
 
 interface NominationConfig {
-	type: Nomination,
-	range: number[],
-	overwrite: boolean,
+	type: Nomination;
+	range: number[];
+	overwrite: boolean;
 }
 
 const getMeRandomElements = function (sourceArray: any[], neededElements: number) {
@@ -99,37 +105,46 @@ const getMeRandomElements = function (sourceArray: any[], neededElements: number
 		result.push(sourceArray[Math.floor(Math.random() * sourceArray.length)]);
 	}
 	return result;
-}
+};
 
 // we assume all accounts already exists.
-async function addNomination(api: ApiPromise, keyring: Keyring, stake: BN, from: number, to: number, config: NominationConfig) {
+async function addNomination(
+	api: ApiPromise,
+	keyring: Keyring,
+	stake: BN,
+	from: number,
+	to: number,
+	config: NominationConfig
+) {
 	if (config.type === Nomination.ParityWestend) {
 		for (const v of PARITY_WESTEND_VALIDATORS) {
 			const prefs = await api.query.staking.validators(v);
-			assert.ok(!prefs.blocked, `${v} is blocked or not a validator`)
+			assert.ok(!prefs.blocked, `${v} is blocked or not a validator`);
 		}
 	}
-	const validators = (await api.query.staking.validators.entries());
-	const firstTargets = validators.map(([stashKey, _prefs]) => {
-		const stash = api.createType('AccountId', stashKey.slice(-32)).toHuman();
-		return stash;
-	}).slice(0, 16);
+	const validators = await api.query.staking.validators.entries();
+	const firstTargets = validators
+		.map(([stashKey, _prefs]) => {
+			const stash = api.createType('AccountId', stashKey.slice(-32)).toHuman();
+			return stash;
+		})
+		.slice(0, 16);
 	if (firstTargets.length != 16) {
 		while (firstTargets.length < 16) {
-			firstTargets.push(firstTargets[0])
+			firstTargets.push(firstTargets[0]);
 		}
 	}
 
 	for (let i = from; i < to; i++) {
 		let nominationTargets = [];
 		if (config.type === Nomination.First) {
-			nominationTargets = firstTargets
+			nominationTargets = firstTargets;
 		} else if (config.type == Nomination.Random) {
 			const range = config.range;
 			// pick random 16 from the range
 			const indices = getMeRandomElements(range, 16);
 			const accounts = indices.map((i) => getAccountAtIndex(i, keyring).address);
-			nominationTargets = accounts
+			nominationTargets = accounts;
 		} else {
 			nominationTargets = PARITY_WESTEND_VALIDATORS;
 		}
@@ -153,17 +168,23 @@ async function addNomination(api: ApiPromise, keyring: Keyring, stake: BN, from:
 			await tx.signAndSend(account);
 		} else if (isBonded && !isNominator) {
 			console.log(`[${i} / extraBond: ${needsBondExtra}] Bonded, Nominating from ${address}`);
-			const tx = needsBondExtra ? api.tx.utility.batchAll([
-				api.tx.staking.bondExtra(stake.sub(bondedAmount)),
-				api.tx.staking.nominate(nominationTargets)
-			]): api.tx.staking.nominate(nominationTargets);
+			const tx = needsBondExtra
+				? api.tx.utility.batchAll([
+						api.tx.staking.bondExtra(stake.sub(bondedAmount)),
+						api.tx.staking.nominate(nominationTargets)
+				  ])
+				: api.tx.staking.nominate(nominationTargets);
 			await tx.signAndSend(account);
 		} else if (isBonded && isNominator && config.overwrite) {
-			console.log(`[${i} / extraBond: ${needsBondExtra}] Already Nominator ${address} with stake ${bondedAmount}, overwriting to ${stake} and new nominations (${config.type})`);
-			const tx = needsBondExtra ? api.tx.utility.batchAll([
-				api.tx.staking.bondExtra(stake.sub(bondedAmount)),
-				api.tx.staking.nominate(nominationTargets)
-			]): api.tx.staking.nominate(nominationTargets);
+			console.log(
+				`[${i} / extraBond: ${needsBondExtra}] Already Nominator ${address} with stake ${bondedAmount}, overwriting to ${stake} and new nominations (${config.type})`
+			);
+			const tx = needsBondExtra
+				? api.tx.utility.batchAll([
+						api.tx.staking.bondExtra(stake.sub(bondedAmount)),
+						api.tx.staking.nominate(nominationTargets)
+				  ])
+				: api.tx.staking.nominate(nominationTargets);
 			await tx.signAndSend(account);
 		} else {
 			console.log(`Already Nominator ${address} (${i})`);
@@ -173,7 +194,13 @@ async function addNomination(api: ApiPromise, keyring: Keyring, stake: BN, from:
 }
 
 // top up all accounts to the fixed amount.
-async function topOpAccounts(api: ApiPromise, keyring: Keyring, amount: BN, from: number, to: number) {
+async function topOpAccounts(
+	api: ApiPromise,
+	keyring: Keyring,
+	amount: BN,
+	from: number,
+	to: number
+) {
 	const sender_seed = secret.god;
 	const god = keyring.addFromUri(sender_seed);
 	let counter = from;
@@ -186,14 +213,14 @@ async function topOpAccounts(api: ApiPromise, keyring: Keyring, amount: BN, from
 			const data = await api.query.system.account(account.address);
 			const topup = amount.sub(data.data.free);
 			if (!topup.isZero()) {
-				console.log(`[#${counter}] topping up ${account.address} to ${amount}`)
+				console.log(`[#${counter}] topping up ${account.address} to ${amount}`);
 				batch.push(api.tx.balances.transferKeepAlive(account.address, topup));
 			} else {
 				console.log(`[#${counter}] ${account.address} is already good`);
 			}
 			counter++;
 		}
-		const batch_tx = api.tx.utility.batch(batch)
+		const batch_tx = api.tx.utility.batch(batch);
 		await send_until_included(api, god, batch_tx);
 	}
 	await api.disconnect();
@@ -203,12 +230,24 @@ async function showStatus(api: ApiPromise, keyring: Keyring, from: number, to: n
 	for (let i = from; i < to; i++) {
 		const account = getAccountAtIndex(i, keyring);
 		const data = await api.query.system.account(account.address);
-		console.log(`Account #${i} has ${data.data.free.toHuman()} free balance, [nonce ${data.nonce} / ${data.providers} providers], ledger? ${(await api.query.staking.ledger(account.address)).isSome}, nominator? ${(await (api.query.staking.nominators(account.address))).isSome}`)
+		console.log(
+			`Account #${i} has ${data.data.free.toHuman()} free balance, [nonce ${data.nonce} / ${
+				data.providers
+			} providers], ledger? ${
+				(await api.query.staking.ledger(account.address)).isSome
+			}, nominator? ${(await api.query.staking.nominators(account.address)).isSome}`
+		);
 	}
 	await api.disconnect();
 }
 
-async function createAccounts(api: ApiPromise, keyring: Keyring, amount: BN, from: number, to: number) {
+async function createAccounts(
+	api: ApiPromise,
+	keyring: Keyring,
+	amount: BN,
+	from: number,
+	to: number
+) {
 	const sender_seed = secret.god;
 	const sender = keyring.addFromUri(sender_seed);
 
@@ -228,42 +267,38 @@ async function createAccounts(api: ApiPromise, keyring: Keyring, amount: BN, fro
 			// Only touch new accounts
 			if (should_add) {
 				console.log(`Adding ${address} (${counter})`);
-				batch.push(
-					api.tx.balances.transferKeepAlive(address, amount)
-				)
+				batch.push(api.tx.balances.transferKeepAlive(address, amount));
 			} else {
 				console.log(`Existing ${address} (${counter})`);
 			}
 			counter += 1;
 		}
-		const batch_tx = api.tx.utility.batch(batch)
+		const batch_tx = api.tx.utility.batch(batch);
 		await send_until_included(api, sender, batch_tx);
 	}
 	await api.disconnect();
 }
 
-async function send_until_included(api: ApiPromise, sender: KeyringPair, tx: SubmittableExtrinsic<"promise", ISubmittableResult>) {
-	return new Promise (async (resolvePromise, reject) => {
-		console.log(
-			`--- Submitting Transaction ---`
-		);
+async function send_until_included(
+	api: ApiPromise,
+	sender: KeyringPair,
+	tx: SubmittableExtrinsic<'promise', ISubmittableResult>
+) {
+	return new Promise(async (resolvePromise, reject) => {
+		console.log(`--- Submitting Transaction ---`);
 
-		const unsub = await tx
-			.signAndSend(sender, (result) => {
-				console.log(`Current status is ${result.status}`);
-				if (result.status.isInBlock) {
-					console.log(
-						`Transaction included at blockHash ${result.status.asInBlock}`
-					);
+		const unsub = await tx.signAndSend(sender, (result) => {
+			console.log(`Current status is ${result.status}`);
+			if (result.status.isInBlock) {
+				console.log(`Transaction included at blockHash ${result.status.asInBlock}`);
 
-					unsub();
-					resolvePromise(null);
-
-				} else if (result.isError) {
-					console.log(`Transaction Error`);
-					reject(`Transaction Error`);
-				}
-			});
+				unsub();
+				resolvePromise(null);
+			} else if (result.isError) {
+				console.log(`Transaction Error`);
+				reject(`Transaction Error`);
+			}
+		});
 	});
 }
 
@@ -273,7 +308,7 @@ async function main() {
 	const provider = new WsProvider('wss://westend-rpc.polkadot.io/');
 	const api = await ApiPromise.create({ provider });
 
-	const WND = new BN(10).pow(new BN(12))
+	const WND = new BN(10).pow(new BN(12));
 
 	// Get general information about the node we are connected to
 	const [chain, nodeName, nodeVersion] = await Promise.all([
@@ -284,8 +319,12 @@ async function main() {
 	console.log(`🌎 You are connected to chain ${chain} using ${nodeName} v${nodeVersion}`);
 	const keyring = new Keyring({ type: 'sr25519' });
 
-	console.log(`📈 nominators: ${await api.query.staking.counterForNominators()} / ${await api.query.staking.maxNominatorsCount()}`)
-	console.log(`📉 validators: ${await api.query.staking.counterForValidators()} / ${await api.query.staking.maxValidatorsCount()}`)
+	console.log(
+		`📈 nominators: ${await api.query.staking.counterForNominators()} / ${await api.query.staking.maxNominatorsCount()}`
+	);
+	console.log(
+		`📉 validators: ${await api.query.staking.counterForValidators()} / ${await api.query.staking.maxValidatorsCount()}`
+	);
 
 	const ACCOUNTS_END = 500 * 1000;
 
@@ -321,7 +360,7 @@ async function main() {
 		WND.mul(new BN(5)).div(new BN(2)),
 		NOMINATION_START,
 		NOMINATION_END,
-		{ type: Nomination.ParityWestend, range: [VALIDATION_START, VALIDATION_END], overwrite: true },
+		{ type: Nomination.ParityWestend, range: [VALIDATION_START, VALIDATION_END], overwrite: true }
 	);
 	// await chill(api, keyring, 450000, 450000 + 1000);
 }
