@@ -100,12 +100,52 @@ interface NominationConfig {
 }
 
 const getMeRandomElements = function (sourceArray: any[], neededElements: number) {
-	const result = [];
+	const result: any[] = [];
 	for (let i = 0; i < neededElements; i++) {
 		result.push(sourceArray[Math.floor(Math.random() * sourceArray.length)]);
 	}
 	return result;
 };
+
+async function addPoolMember(
+	api: ApiPromise,
+	keyring: Keyring,
+	stake: BN,
+	from: number,
+	to: number,
+) {
+	const allPoolIds = (await api.query.nominationPools.bondedPools.entries()).filter(([_, bondedPool]) => bondedPool.unwrap().state.isOpen).map(([id, _]) => id.args[0]);
+	for (let i = from; i < to; i++) {
+		const account = getAccountAtIndex(i, keyring);
+		const address = account.address;
+		const data = await api.query.system.account(address);
+		if ((await api.query.nominationPools.poolMembers(address)).isSome) {
+			console.log(`[${i}] ${address} already in some pool`);
+			continue;
+		}
+
+		if (data.data.free.lt(stake)) {
+			console.log(`[${i}] ${address} does not have enough funds!`);
+			continue;
+		}
+
+		const poolToJoin = getMeRandomElements(allPoolIds, 1)[0] as number;
+		const tx = await api.tx.nominationPools.join(stake, poolToJoin);
+		await tx.signAndSend(account);
+		console.log(`[${i}] ${address} joined ${poolToJoin}`);
+	}
+}
+
+async function createPoolAt(api: ApiPromise,
+	keyring: Keyring,
+	stake: BN,
+) {
+	const sender_seed = secret.god;
+	const god = keyring.addFromUri(sender_seed);
+	const tx = await api.tx.nominationPools.create(stake, god.address, god.address, god.address);
+	console.log(tx.era.toHuman(), tx.meta.toHuman())
+
+}
 
 // we assume all accounts already exists.
 async function addNomination(
@@ -136,7 +176,7 @@ async function addNomination(
 	}
 
 	for (let i = from; i < to; i++) {
-		let nominationTargets = [];
+		let nominationTargets: string[] = [];
 		if (config.type === Nomination.First) {
 			nominationTargets = firstTargets;
 		} else if (config.type == Nomination.Random) {
@@ -170,9 +210,9 @@ async function addNomination(
 			console.log(`[${i} / extraBond: ${needsBondExtra}] Bonded, Nominating from ${address}`);
 			const tx = needsBondExtra
 				? api.tx.utility.batchAll([
-						api.tx.staking.bondExtra(stake.sub(bondedAmount)),
-						api.tx.staking.nominate(nominationTargets)
-				  ])
+					api.tx.staking.bondExtra(stake.sub(bondedAmount)),
+					api.tx.staking.nominate(nominationTargets)
+				])
 				: api.tx.staking.nominate(nominationTargets);
 			await tx.signAndSend(account);
 		} else if (isBonded && isNominator && config.overwrite) {
@@ -181,9 +221,9 @@ async function addNomination(
 			);
 			const tx = needsBondExtra
 				? api.tx.utility.batchAll([
-						api.tx.staking.bondExtra(stake.sub(bondedAmount)),
-						api.tx.staking.nominate(nominationTargets)
-				  ])
+					api.tx.staking.bondExtra(stake.sub(bondedAmount)),
+					api.tx.staking.nominate(nominationTargets)
+				])
 				: api.tx.staking.nominate(nominationTargets);
 			await tx.signAndSend(account);
 		} else {
@@ -207,7 +247,7 @@ async function topOpAccounts(
 	const batch_size = 1000;
 
 	while (counter < to) {
-		const batch = [];
+		const batch: SubmittableExtrinsic<"promise", ISubmittableResult>[] = [];
 		while (batch.length < batch_size && counter < to) {
 			const account = getAccountAtIndex(counter, keyring);
 			const data = await api.query.system.account(account.address);
@@ -255,7 +295,7 @@ async function createAccounts(
 	let counter = from;
 
 	while (counter < to) {
-		const batch = [];
+		const batch: SubmittableExtrinsic<"promise", ISubmittableResult>[] = [];
 
 		while (batch.length < batch_size && counter < to) {
 			// generate an account using the sender seed, with a password derivation
@@ -276,6 +316,7 @@ async function createAccounts(
 		const batch_tx = api.tx.utility.batch(batch);
 		await send_until_included(api, sender, batch_tx);
 	}
+
 	await api.disconnect();
 }
 
@@ -302,6 +343,14 @@ async function send_until_included(
 	});
 }
 
+async function fastUnstake(api: ApiPromise, from: number, to: number, keyring: Keyring) {
+	for (let i = from; i < to; i++) {
+		const account = getAccountAtIndex(i, keyring);
+		const call = api.tx.fastUnstake.registerFastUnstake();
+		await call.signAndSend(account);
+	}
+}
+
 // Main function which needs to run at start
 async function main() {
 	// const provider = new WsProvider('ws://localhost:9944');
@@ -325,6 +374,9 @@ async function main() {
 	console.log(
 		`📉 validators: ${await api.query.staking.counterForValidators()} / ${await api.query.staking.maxValidatorsCount()}`
 	);
+	console.log(
+		`🏊 ${await api.query.nominationPools.counterForBondedPools()} nomination pools, ${await api.query.nominationPools.counterForPoolMembers()} members.`
+	)
 
 	const ACCOUNTS_END = 500 * 1000;
 
@@ -333,16 +385,34 @@ async function main() {
 
 	const CHEAP_NOMINATION_START = 40 * 1000;
 	const CHEAP_NOMINATION_END = 80 * 1000;
+	const FAST_UNSTAKERS = CHEAP_NOMINATION_START + 2 * 1000;
+
+	const POOL_MEMBERS_START = 100 * 1000;
+	const POOL_MEMBERS_END = POOL_MEMBERS_START + 20 * 1000;
 
 	const VALIDATION_START = 450 * 1000;
 	const VALIDATION_END = VALIDATION_START + 1000;
 
+	// topOpAccounts(api, keyring, new BN(3).mul(WND), CHEAP_NOMINATION_START, FAST_UNSTAKERS)
+	// await addNomination(
+	// 	api,
+	// 	keyring,
+	// 	WND.mul(new BN(3)).div(new BN(2)),
+	// 	CHEAP_NOMINATION_START,
+	// 	FAST_UNSTAKERS,
+	// 	{ type: Nomination.Random, range: [VALIDATION_START, VALIDATION_END], overwrite: true },
+	// );
+	await fastUnstake(api, CHEAP_NOMINATION_START, FAST_UNSTAKERS + 100, keyring);
+
+	// createPoolAt(api, keyring, new BN(10).mul(WND));
+
 	// uncomment something on each run, someday I will make this cli options. Some examples:
 	// await showStatus(api, keyring, 0, NOMINATION_END);
 	// await addValidators(api, keyring, VALIDATION_START, VALIDATION_END);
-	// await createAccounts(api, keyring, 0, ACCOUNTS_END);
+	// await createAccounts(api, keyring, new BN(5).mul(WND), POOL_MEMBERS_START, POOL_MEMBERS_END);
+	// await topOpAccounts(api, keyring, new BN(5).mul(WND), POOL_MEMBERS_START, POOL_MEMBERS_END);
 
-	// await topOpAccounts(api, keyring, new BN(5).mul(WND), 8000, NOMINATION_END);
+	// await addPoolMember(api, keyring, new BN(1).mul(WND), 108639, POOL_MEMBERS_END);
 
 	// await addNomination(
 	// 	api,
@@ -354,14 +424,14 @@ async function main() {
 	// );
 
 	// await chill(api, keyring, VALIDATION_START, VALIDATION_END);
-	await addNomination(
-		api,
-		keyring,
-		WND.mul(new BN(5)).div(new BN(2)),
-		NOMINATION_START,
-		NOMINATION_END,
-		{ type: Nomination.ParityWestend, range: [VALIDATION_START, VALIDATION_END], overwrite: true }
-	);
+	// await addNomination(
+	// 	api,
+	// 	keyring,
+	// 	WND.mul(new BN(5)).div(new BN(2)),
+	// 	NOMINATION_START,
+	// 	NOMINATION_END,
+	// 	{ type: Nomination.ParityWestend, range: [VALIDATION_START, VALIDATION_END], overwrite: true }
+	// );
 	// await chill(api, keyring, 450000, 450000 + 1000);
 }
 

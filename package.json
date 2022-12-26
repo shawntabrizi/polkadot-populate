@@ -16,24 +16,24 @@
 	},
 	"devDependencies": {
 		"@babel/cli": "^7.19.3",
-		"@babel/core": "^7.19.3",
+		"@babel/core": "^7.20.5",
 		"@babel/preset-typescript": "^7.18.6",
-		"@types/node": "^18.8.5",
-		"@types/yargs": "^17.0.13",
-		"@typescript-eslint/eslint-plugin": "^5.40.0",
-		"@typescript-eslint/parser": "^5.40.0",
-		"eslint": "^8.25.0",
+		"@types/node": "^18.11.17",
+		"@types/yargs": "^17.0.17",
+		"@typescript-eslint/eslint-plugin": "^5.47.0",
+		"@typescript-eslint/parser": "^5.47.0",
+		"eslint": "^8.30.0",
 		"nodemon": "^2.0.20",
-		"npm-check-updates": "16.3.11",
+		"npm-check-updates": "16.6.0",
 		"eslint-config-prettier": "^8.5.0",
 		"eslint-plugin-prettier": "^4.2.1",
-		"prettier": "^2.7.1",
-		"ts-loader": "^9.4.1",
+		"prettier": "^2.8.1",
+		"ts-loader": "^9.4.2",
 		"ts-node": "^10.9.1",
-		"typescript": "4.8.4"
+		"typescript": "4.9.4"
 	},
 	"dependencies": {
-		"@polkadot/api": "9.5.1",
+		"@polkadot/api": "9.10.3",
 		"bn.js": "^5.2.1"
 	}
 }
